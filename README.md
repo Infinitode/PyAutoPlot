@@ -7,6 +7,15 @@
 
 PyAutoPlot is an open-source Python library designed to make dataset analysis much easier by generating helpful detailed plots using `matplotlib`. It automatically generates appropriate plots based on the dataset you feed it.
 
+### Changes in version 1.0.1:
+- Added package dependencies to PyAutoPlot: `matplotlib>=3.0.0`, `pandas>=1.0.0`, and `numpy>=1.18.0`.
+
+### Changes in version 1.0.0:
+- `AutoPlot` class, along with `auto_plot` and `plot` functions. `auto_plot` automatically generates suitable plots based on values in your dataset.
+
+> [!IMPORTANT]
+> The `AutoPlot` object needs to be initialized with a **CSV dataset** before any plots can be generated using either `plot` or `auto_plot`.
+
 ## Installation
 
 You can install PyAutoPlot using pip:

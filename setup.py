@@ -27,4 +27,9 @@ setup(
         'Programming Language :: Python :: 3.13',
     ],
     python_requires='>=3.6',
+    install_requires=[
+        'matplotlib>=3.0.0',
+        'pandas>=1.0.0',
+        'numpy>=1.18.0'
+    ],
 )
