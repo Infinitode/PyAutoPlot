@@ -7,6 +7,31 @@
 
 PyAutoPlot is an open-source Python library designed to make dataset analysis much easier by generating helpful detailed plots using `matplotlib`. It automatically generates appropriate plots based on the dataset you feed it.
 
+### Changes in version 1.0.2:
+Bug Fixes and Robustness:
+- Corrected calculation of missing values in `_generate_analysis`.
+- Added error handling for statistical functions (`skewness`, `kurtosis`, `autocorrelation`) to prevent crashes with empty or zero-variance data, returning NaN instead.
+- Added warnings for columns not classified by `_detect_column_types`.
+- Included input validation in the `plot()` method to check for valid column names and required arguments, raising ValueErrors for invalid input.
+
+Performance Enhancements:
+- Modified `auto_plot()` to display and close plot figures section by section (or individually for looped plots like pie/line charts). This significantly reduces memory consumption when generating many plots.
+- Added a warning in the `auto_plot()` docstring regarding potential performance issues of pairwise scatter plots with many numeric columns.
+
+Code Cleanup:
+- Refined static method definitions (`_calculate_skewness`, `_calculate_kurtosis`, etc.) by removing unnecessary `self` arguments and ensuring calls are updated.
+
+- Testing:
+- Replaced the existing `test.py` with a new script that:
+    - Creates a `test_output` directory for plot outputs.
+    - Uses `energy_consumption_dataset.csv` (with a dummy fallback).
+    - Demonstrates `AutoPlot` initialization.
+    - Runs `auto_plot()` with default and custom configurations.
+    - Runs manual `plot()` for scatter, distribution, boxplot, and bar types.
+    - Shows usage of the `customize()` method.
+    - Includes a test with a small, inline dataset.
+    - Saves all generated plots for visual inspection.
+
 ### Changes in version 1.0.1:
 - Added package dependencies to PyAutoPlot: `matplotlib>=3.0.0`, `pandas>=1.0.0`, and `numpy>=1.18.0`.
 
