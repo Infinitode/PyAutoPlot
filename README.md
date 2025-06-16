@@ -21,7 +21,7 @@ Performance Enhancements:
 Code Cleanup:
 - Refined static method definitions (`_calculate_skewness`, `_calculate_kurtosis`, etc.) by removing unnecessary `self` arguments and ensuring calls are updated.
 
-- Testing:
+Testing:
 - Replaced the existing `test.py` with a new script that:
     - Creates a `test_output` directory for plot outputs.
     - Uses `energy_consumption_dataset.csv` (with a dummy fallback).
