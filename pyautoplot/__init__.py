@@ -151,7 +151,6 @@ class AutoPlot:
                 "Mean": data_column.mean(),
                 "Median": data_column.median(),
                 "Missing Values": data_column.isnull().sum(),
-                "Seasonality": self._detect_seasonality(data_column),
                 "Autocorrelation": self._calculate_autocorrelation(data_column),
             }
             analysis[column] = stats
@@ -373,7 +372,7 @@ class AutoPlot:
         """
         Generate a specific type of plot manually.
 
-        Args:
+        Parameters:
             plot_type (str): Type of plot to generate. Options include:
                 - "scatter": Scatter plot (requires x and y).
                 - "distribution": Histogram (requires x).
