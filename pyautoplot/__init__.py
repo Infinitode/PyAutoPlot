@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import os
 import warnings
+import json
+import base64
+import io
 # from statsmodels.tsa.stattools import acf # Removed as _detect_seasonality is removed
 
 class AutoPlot:
@@ -31,28 +34,85 @@ class AutoPlot:
             csv_path (str): Path to the CSV file to load and analyze.
         """
         self.data = pd.read_csv(csv_path)
+        self._try_parse_dates()
         self.categorical = []
         self.numeric = []
         self.time_series = []
         self._detect_column_types()
+        self._apply_theme("light") # Initialize default theme
+
+    def _try_parse_dates(self):
+        """Attempt to parse object columns as dates."""
+        for col in self.data.select_dtypes(include=['object']):
+            # Basic check to see if it's likely a date column
+            # We avoid purely numeric strings that might be interpreted as dates
+            if self.data[col].astype(str).str.contains(r'[-/:]').any():
+                try:
+                    converted = pd.to_datetime(self.data[col], errors='coerce')
+                    # If more than 50% parsed successfully and it's not all NaT
+                    if converted.notna().sum() > len(self.data) * 0.5:
+                        self.data[col] = converted
+                except (ValueError, TypeError):
+                    pass
 
     def _detect_column_types(self):
-        """Detect columns as categorical or numeric based on their content."""
+        """Detect columns as categorical, numeric, or time-series based on their content."""
+        self.categorical = []
+        self.numeric = []
+        self.time_series = []
+
         for column in self.data.columns:
             # Check for time series (datetime-like columns)
             if pd.api.types.is_datetime64_any_dtype(self.data[column]):
                 self.time_series.append(column)
-            # Check for categorical columns (object dtype or less than 15 unique values)
-            elif self.data[column].dtype == 'object' or self.data[column].nunique() < 15:
-                self.categorical.append(column)
             # Check for numeric columns (numeric dtype)
             elif pd.api.types.is_numeric_dtype(self.data[column]):
-                self.numeric.append(column)
+                # If it has very few unique values, it might be better as categorical (e.g., flags 0/1)
+                # but usually numeric is fine. Let's stick to the rule but prioritize numeric.
+                if self.data[column].nunique() < 10:
+                     self.categorical.append(column)
+                else:
+                     self.numeric.append(column)
+            # Check for categorical columns (object dtype)
+            elif self.data[column].dtype == 'object' or self.data[column].nunique() < 15:
+                self.categorical.append(column)
 
         # Check for unclassified columns
         for column in self.data.columns:
             if column not in self.numeric and column not in self.categorical and column not in self.time_series:
                 warnings.warn(f"Warning: Column '{column}' was not classified and will be ignored.")
+
+    def cleanup(self, strategy='mean', fill_value=None, columns=None, drop_na=False):
+        """
+        Perform basic data cleanup and handle missing values.
+
+        Parameters:
+            strategy (str): Strategy to fill missing values ('mean', 'median', 'mode', 'constant'). Default is 'mean'.
+            fill_value (any): Value to use if strategy is 'constant'.
+            columns (list): List of columns to clean. If None, cleans all columns.
+            drop_na (bool): If True, drops rows with missing values instead of filling them.
+        """
+        if columns is None:
+            columns = self.data.columns.tolist()
+
+        if drop_na:
+            self.data.dropna(subset=columns, inplace=True)
+        else:
+            for col in columns:
+                if self.data[col].isnull().any():
+                    if strategy == 'mean' and pd.api.types.is_numeric_dtype(self.data[col]):
+                        self.data[col] = self.data[col].fillna(self.data[col].mean())
+                    elif strategy == 'median' and pd.api.types.is_numeric_dtype(self.data[col]):
+                        self.data[col] = self.data[col].fillna(self.data[col].median())
+                    elif strategy == 'mode':
+                        mode_vals = self.data[col].mode()
+                        if not mode_vals.empty:
+                            self.data[col] = self.data[col].fillna(mode_vals[0])
+                    elif strategy == 'constant':
+                        self.data[col] = self.data[col].fillna(fill_value)
+
+        # Re-detect column types after cleanup
+        self._detect_column_types()
 
     def _apply_theme(self, theme):
         """Apply theme settings for light, dark, or custom themes."""
@@ -220,6 +280,55 @@ class AutoPlot:
         least_common = value_counts.min()
         return f"{most_common}:{least_common} (Most:Least)"
 
+    def _plot_correlation_heatmap(self, output_file=None, **kwargs):
+        """Generate a correlation heatmap for numeric variables."""
+        if len(self.numeric) < 2:
+            return
+
+        corr = self.data[self.numeric].corr()
+        fig, ax = plt.subplots(figsize=(10, 8), constrained_layout=True)
+        im = ax.imshow(corr, cmap='coolwarm', vmin=-1, vmax=1)
+
+        # Add colorbar
+        fig.colorbar(im, ax=ax)
+
+        # Set ticks and labels
+        ax.set_xticks(np.arange(len(self.numeric)))
+        ax.set_yticks(np.arange(len(self.numeric)))
+        ax.set_xticklabels(self.numeric, rotation=45, ha="right")
+        ax.set_yticklabels(self.numeric)
+
+        # Add text annotations
+        for i in range(len(self.numeric)):
+            for j in range(len(self.numeric)):
+                ax.text(j, i, f"{corr.iloc[i, j]:.2f}",
+                               ha="center", va="center", color="black")
+
+        ax.set_title("Correlation Heatmap", fontsize=16, weight="bold")
+
+        if output_file:
+            plt.savefig(output_file, dpi=kwargs.get("dpi", 300))
+
+    def _plot_violin(self, output_file=None, **kwargs):
+        """Generate violin plots for numeric variables."""
+        if not self.numeric:
+            return
+
+        num_cols = len(self.numeric)
+        fig, axes = plt.subplots(num_cols, 1, figsize=(10, num_cols * 4), constrained_layout=True)
+        axes = axes if num_cols > 1 else [axes]
+
+        for i, col in enumerate(self.numeric):
+            data_to_plot = self.data[col].dropna()
+            if not data_to_plot.empty:
+                axes[i].violinplot(data_to_plot)
+                axes[i].set_title(f"Violin Plot of {col}", weight="bold")
+                axes[i].set_ylabel("Value")
+                axes[i].set_xticks([]) # Remove x ticks for single violin
+
+        if output_file:
+            plt.savefig(output_file, dpi=kwargs.get("dpi", 300))
+
     def _plot_detailed_analysis(self, analysis, output_file=None):
         """Create a summary plot showing the detailed analysis for all variables."""
         total_vars = len(analysis)
@@ -305,6 +414,18 @@ class AutoPlot:
             plt.show()
             plt.close('all')
 
+        # Section: Correlation Heatmap
+        if "correlation" not in excludes:
+            self._plot_correlation_heatmap(output_file=f"{base_filename}_correlation{file_extension}" if output_file else None, **kwargs)
+            plt.show()
+            plt.close('all')
+
+        # Section: Violin Plots
+        if "violin" not in excludes:
+            self._plot_violin(output_file=f"{base_filename}_violin{file_extension}" if output_file else None, **kwargs)
+            plt.show()
+            plt.close('all')
+
         # Section 3: Enhanced Bar Plots for Categorical Variables
         if self.categorical and "categorical" not in excludes:
             fig_cat, ax_cat = plt.subplots(len(self.categorical), 1, figsize=(18, len(self.categorical) * 5), constrained_layout=True)
@@ -339,6 +460,9 @@ class AutoPlot:
 
         # Section 4: Pairwise Scatter Plots for Numeric Variables
         if len(self.numeric) > 1 and "pairwise_scatter" not in excludes:
+            if len(self.numeric) > 10:
+                warnings.warn(f"Large number of numeric columns ({len(self.numeric)}) detected. Pairwise scatter plots may be slow.")
+
             fig_scatter, axes_scatter = plt.subplots(len(self.numeric), len(self.numeric), figsize=(20, 20), constrained_layout=True)
 
             fig_scatter.suptitle("Pairwise Scatter Plots of Numeric Variables", fontsize=20, weight="bold", y=1.02)
@@ -432,7 +556,7 @@ class AutoPlot:
             if y not in self.data.columns:
                 raise ValueError(f"Column '{y}' not found in dataset.")
             self.data.plot.scatter(x=x, y=y, **kwargs)
-        elif plot_type in ["distribution", "boxplot", "bar"]:
+        elif plot_type in ["distribution", "boxplot", "bar", "violin"]:
             if x is None:
                 raise ValueError("Argument 'x' is required for this plot type.")
             if x not in self.data.columns:
@@ -444,6 +568,11 @@ class AutoPlot:
                 self.data.boxplot(column=x, **kwargs)
             elif plot_type == "bar":
                 self.data[x].value_counts().plot(kind="bar", **kwargs)
+            elif plot_type == "violin":
+                plt.violinplot(self.data[x].dropna())
+                plt.title(f"Violin Plot of {x}")
+        elif plot_type == "correlation":
+            self._plot_correlation_heatmap(**kwargs)
         else:
             # Handling other plot types or raising an error for unsupported ones
             # If x is generally required for other plots, this check can be more generic.
@@ -457,6 +586,210 @@ class AutoPlot:
                 raise ValueError(f"Plot type '{plot_type}' is not supported or invalid arguments provided.")
 
         plt.show()
+
+    def export_report(self, output_file, format='html'):
+        """
+        Export a comprehensive report of the analysis and visualizations.
+
+        Parameters:
+            output_file (str): Path to the output file.
+            format (str): Format of the report ('html' or 'pdf'). Default is 'html'.
+        """
+        if format.lower() == 'html':
+            self._export_html(output_file)
+        elif format.lower() == 'pdf':
+            self._export_pdf(output_file)
+        else:
+            raise ValueError("Unsupported format. Use 'html' or 'pdf'.")
+
+    def _export_html(self, output_file):
+        """Internal method to export HTML report."""
+        analysis = self._generate_analysis()
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>PyAutoPlot Analysis Report</title>
+            <style>
+                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f9; color: #333; }}
+                .container {{ max-width: 1200px; margin: auto; padding: 20px; background: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
+                h1, h2, h3 {{ color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; }}
+                .toc {{ background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; border-left: 5px solid #3498db; }}
+                .toc ul {{ list-style: none; padding: 0; }}
+                .toc li {{ margin-bottom: 10px; }}
+                .toc a {{ text-decoration: none; color: #3498db; font-weight: bold; }}
+                .section {{ margin-bottom: 50px; }}
+                .plot-container {{ text-align: center; margin: 20px 0; }}
+                img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+                th {{ background-color: #3498db; color: white; }}
+                tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>PyAutoPlot Analysis Report</h1>
+
+                <div class="toc">
+                    <h2>Table of Contents</h2>
+                    <ul>
+                        <li><a href="#summary">1. Dataset Summary</a></li>
+                        <li><a href="#detailed-analysis">2. Statistical Analysis</a></li>
+                        <li><a href="#visualizations">3. Visualizations</a></li>
+                    </ul>
+                </div>
+
+                <div id="summary" class="section">
+                    <h2>1. Dataset Summary</h2>
+                    <table>
+                        <tr><th>Metric</th><th>Value</th></tr>
+                        <tr><td>Number of Rows</td><td>{len(self.data)}</td></tr>
+                        <tr><td>Number of Columns</td><td>{len(self.data.columns)}</td></tr>
+                        <tr><td>Numeric Columns</td><td>{", ".join(self.numeric) if self.numeric else "None"}</td></tr>
+                        <tr><td>Categorical Columns</td><td>{", ".join(self.categorical) if self.categorical else "None"}</td></tr>
+                        <tr><td>Time Series Columns</td><td>{", ".join(self.time_series) if self.time_series else "None"}</td></tr>
+                    </table>
+                </div>
+
+                <div id="detailed-analysis" class="section">
+                    <h2>2. Statistical Analysis</h2>
+        """
+
+        for col, stats in analysis.items():
+            html_content += f"<h3>Variable: {col} ({stats['Type']})</h3><table>"
+            for k, v in stats.items():
+                if k != "Type":
+                    html_content += f"<tr><td>{k}</td><td>{v}</td></tr>"
+            html_content += "</table>"
+
+        html_content += '<div id="visualizations" class="section"><h2>3. Visualizations</h2>'
+
+        def get_plot_base64():
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            buf.seek(0)
+            img_str = base64.b64encode(buf.read()).decode('utf-8')
+            plt.close('all')
+            return img_str
+
+        # Correlation Heatmap
+        if len(self.numeric) >= 2:
+            self._plot_correlation_heatmap()
+            html_content += f'<h3>3.1 Correlation Heatmap</h3><div class="plot-container"><img src="data:image/png;base64,{get_plot_base64()}"></div>'
+
+        # Numeric plots
+        if self.numeric:
+            html_content += '<h3>3.2 Numeric Distributions and Boxplots</h3>'
+            for column in self.numeric:
+                fig, axes = plt.subplots(1, 2, figsize=(15, 6), constrained_layout=True)
+                self.data[column].plot(kind='hist', ax=axes[0], title=f"Distribution of {column}")
+                self.data.boxplot(column=column, ax=axes[1])
+                html_content += f'<div class="plot-container"><img src="data:image/png;base64,{get_plot_base64()}"></div>'
+
+            html_content += '<h3>3.3 Violin Plots</h3>'
+            self._plot_violin()
+            html_content += f'<div class="plot-container"><img src="data:image/png;base64,{get_plot_base64()}"></div>'
+
+        # Categorical plots
+        if self.categorical:
+            html_content += '<h3>3.4 Categorical Variable Bar Plots</h3>'
+            for cat_column in self.categorical:
+                fig, ax = plt.subplots(figsize=(10, 6))
+                self.data[cat_column].value_counts().plot(kind="bar", ax=ax, title=f"Bar Plot of {cat_column}")
+                html_content += f'<div class="plot-container"><img src="data:image/png;base64,{get_plot_base64()}"></div>'
+
+        html_content += "</div></div></body></html>"
+
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+    def _export_pdf(self, output_file):
+        """Internal method to export PDF report."""
+        from matplotlib.backends.backend_pdf import PdfPages
+
+        with PdfPages(output_file) as pdf:
+            # 1. Detailed Analysis
+            analysis = self._generate_analysis()
+            self._plot_detailed_analysis(analysis)
+            pdf.savefig(bbox_inches='tight')
+            plt.close('all')
+
+            # 2. Correlation
+            if len(self.numeric) >= 2:
+                self._plot_correlation_heatmap()
+                pdf.savefig(bbox_inches='tight')
+                plt.close('all')
+
+            # 3. Numeric
+            if self.numeric:
+                for column in self.numeric:
+                    fig, axes = plt.subplots(1, 2, figsize=(15, 6), constrained_layout=True)
+                    self.data[column].plot(kind='hist', ax=axes[0], title=f"Distribution of {column}")
+                    self.data.boxplot(column=column, ax=axes[1])
+                    pdf.savefig(bbox_inches='tight')
+                    plt.close('all')
+
+                self._plot_violin()
+                pdf.savefig(bbox_inches='tight')
+                plt.close('all')
+
+            # 4. Categorical
+            if self.categorical:
+                for cat_column in self.categorical:
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    self.data[cat_column].value_counts().plot(kind="bar", ax=ax, title=f"Bar Plot of {cat_column}")
+                    pdf.savefig(bbox_inches='tight')
+                    plt.close('all')
+
+    def export_json(self, output_file):
+        """Export statistical analysis and metadata to a JSON file."""
+        analysis = self._generate_analysis()
+
+        # Convert any non-serializable objects (like numpy types or pandas Series/DataFrames)
+        def convert_to_serializable(obj):
+            if isinstance(obj, (np.integer, np.int64, np.int32)):
+                return int(obj)
+            if isinstance(obj, (np.floating, np.float64, np.float32)):
+                if np.isnan(obj):
+                    return None
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, pd.Series):
+                return obj.to_dict()
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            if isinstance(obj, (list, tuple)):
+                return [convert_to_serializable(i) for i in obj]
+            if isinstance(obj, dict):
+                return {str(k): convert_to_serializable(v) for k, v in obj.items()}
+            if pd.isna(obj):
+                return None
+            return obj
+
+        serializable_analysis = convert_to_serializable(analysis)
+
+        metadata = {
+            "num_rows": int(len(self.data)),
+            "num_columns": int(len(self.data.columns)),
+            "column_types": {
+                "numeric": self.numeric,
+                "categorical": self.categorical,
+                "time_series": self.time_series
+            }
+        }
+
+        data_to_export = {
+            "metadata": metadata,
+            "analysis": serializable_analysis
+        }
+
+        with open(output_file, 'w') as f:
+            json.dump(data_to_export, f, indent=4)
 
     def customize(self, **kwargs):
         """Update global plot settings."""
