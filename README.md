@@ -7,6 +7,18 @@
 
 PyAutoPlot is an open-source Python library designed to make dataset analysis much easier by generating helpful detailed plots using `matplotlib`. It automatically generates appropriate plots based on the dataset you feed it.
 
+### Changes in version 1.1.0:
+1. **New Visualizations**: Added Correlation Heatmaps and Violin Plots.
+2. **Data Cleanup**: New `cleanup()` method allows filling or dropping missing values with multiple strategies.
+3. **Advanced Reporting**: 
+   - `export_json()`: Saves all stats and metadata to JSON.
+   - `export_report()`: Generates professional HTML (self-contained) or PDF reports.
+4. **Improved Intelligence**: Automatically detects and parses date strings into datetime objects.
+5. **Optimizations**: Better memory management and resource warnings for large datasets.
+
+> [!TIP]
+> For more information and Python package API references, view PyAutoPlot's documentation: https://infinitode-docs.gitbook.io/documentation/package-documentation/pyautoplot-package-documentation.
+
 ### Changes in version 1.0.2:
 Bug Fixes and Robustness:
 - Corrected calculation of missing values in `_generate_analysis`.
