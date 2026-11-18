@@ -4,8 +4,15 @@
 ![Downloads](https://pepy.tech/badge/pyautoplot)
 ![License Compliance](https://img.shields.io/badge/license-compliance-brightgreen.svg)
 ![PyPI Version](https://img.shields.io/pypi/v/pyautoplot)
+[![PyPI provenance](https://img.shields.io/badge/PyPI%20provenance-view-blue?logo=pypi)](https://pypi.org/project/pyautoplot/#security)
 
 PyAutoPlot is an open-source Python library designed to make dataset analysis much easier by generating helpful detailed plots using `matplotlib`. It automatically generates appropriate plots based on the dataset you feed it.
+
+### Changes in version 1.1.1:
+- Fixed date detection and reports for sparse or mixed-format timestamps. Time plots use sorted timestamps as the x-axis for numeric measurements.
+- Fixed analysis and plotting for empty columns and header-only CSVs, and made JSON exports handle non-finite numbers.
+- Fixed partial themes and `dpi`/`bins` handling. Plots and reports no longer close figures they didn't create, and `show=False` supports file-only plotting.
+- Added regression tests and prepared releases for PyPI Trusted Publishing with per-file attestations. The provenance badge links to the latest release's provenance status on PyPI.
 
 ### Changes in version 1.1.0:
 1. **New Visualizations**: Added Correlation Heatmaps and Violin Plots.
@@ -89,9 +96,14 @@ from pyautoplot import AutoPlot
 # Initialize with a CSV file
 plotter = AutoPlot("path/to/dataset.csv")
 
-# Automatically analyze and plot
-plotter.auto_plot(output_file='test', theme="dark", color='orange', excludes=['detailed_analysis'])
+# Save charts without opening plot windows
+plotter.auto_plot(
+    output_file="charts.png", theme="dark", color="orange",
+    excludes=["pairwise_scatter"], show=False, dpi=150, bins=20,
+)
 ```
+
+Date-like text columns are converted only if all their non-missing values parse. Offset-aware timestamps are normalized to UTC. When numeric measurements are present, line charts use the sorted timestamps as the x-axis; the area chart uses the first plottable date column and switches to an unstacked chart if a series has both positive and negative values.
 
 > [!NOTE]
 > PyAutoPlot may not work well with certain datasets. If you find any issues please open an issue.

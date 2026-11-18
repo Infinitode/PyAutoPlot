@@ -1,6 +1,8 @@
 __pycache__
 *.pyc
+*.egg-info/
 dist/
 build/
+test_output/
 venv/
 .venv/

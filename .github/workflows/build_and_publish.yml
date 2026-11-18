@@ -1,34 +1,76 @@
-name: Publish Python 🐍 distributions 📦 to PyPI
+name: Publish to PyPI
 
 on:
   push:
     tags:
-       - '*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions: {}
 
 jobs:
-  build-n-publish:
-    name: Build and publish Python 🐍 distributions 📦 to PyPI
+  build:
+    name: Build and test distributions
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      MPLBACKEND: Agg
     steps:
-    - uses: actions/checkout@master
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v3
-      with:
-        python-version: '3.12'
-    - name: Install pypa/setuptools
-      run: >-
-        python -m
-        pip install setuptools wheel
-    - name: Extract tag name
-      id: tag
-      run: echo ::set-output name=TAG_NAME::$(echo $GITHUB_REF | cut -d / -f 3)
-    - name: Update version in setup.py
-      run: >-
-        sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.tag.outputs.TAG_NAME }}/g" setup.py
-    - name: Build a binary wheel
-      run: >-
-        python setup.py sdist bdist_wheel
-    - name: Publish distribution 📦 to PyPI
-      uses: pypa/gh-action-pypi-publish@master
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Build the wheel and source distribution
+        run: |
+          python -m pip install build twine
+          python -m build
+      - name: Check package metadata and release version
+        run: |
+          python -m twine check --strict dist/*
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from packaging.utils import parse_sdist_filename, parse_wheel_filename
+
+          tag = os.environ['GITHUB_REF_NAME']
+          wheel, = Path('dist').glob('*.whl')
+          sdist, = Path('dist').glob('*.tar.gz')
+          for file, parse in [(wheel, parse_wheel_filename), (sdist, parse_sdist_filename)]:
+              if str(parse(file.name)[1]) != tag:
+                  raise SystemExit(f'{file.name} does not match release tag {tag!r}')
+          PY
+      - name: Install the built wheel
+        run: python -m pip install dist/*.whl
+      - name: Test the installed wheel
+        working-directory: ${{ runner.temp }}
+        run: python -m unittest discover -s "$GITHUB_WORKSPACE/tests" -v
+      - name: Upload distributions for the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish distributions with attestations
+    if: github.repository == 'Infinitode/PyAutoPlot'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    # No environment: the PyPI Trusted Publisher must also leave it blank.
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distributions
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true
+      - name: Link to release provenance
+        run: |
+          printf '[View release provenance on PyPI](https://pypi.org/project/pyautoplot/%s/#security)\n' \
+            "$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
