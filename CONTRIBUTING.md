@@ -11,10 +11,14 @@ Thank you for considering contributing to **PyAutoPlot**! Contributions, whether
    Ensure you have Python 3.6+ installed. You should also install compatible versions of the necessary dependencies for the project.
 
 3. **Run Tests**
-   Before making changes, run tests to confirm that everything works.
+   Install the package and run the headless regression suite:
 
-> [!TIP]
-> We sometimes include testing scripts in our projects for easy testing.
+   ```bash
+   python -m pip install .
+   python -m unittest discover -s tests -v
+   ```
+
+   `python test.py` is a separate smoke example using the included energy dataset.
 
 ## How to Contribute
 
@@ -32,6 +36,29 @@ Thank you for considering contributing to **PyAutoPlot**! Contributions, whether
    - Push your changes to a feature branch in your fork.
    - Submit a pull request with a detailed explanation of what you've changed or added.
    - Ensure your PR passes all automated tests and adheres to the contribution guidelines.
+
+## Publishing a release
+
+In the [`pyautoplot` project's publishing settings](https://pypi.org/manage/project/pyautoplot/settings/publishing/), add a **GitHub** Trusted Publisher with these values:
+
+| PyPI field | Value |
+| --- | --- |
+| Owner | `Infinitode` |
+| Repository name | `PyAutoPlot` |
+| Workflow name | `build_and_publish.yml` |
+| Environment name | Leave blank |
+
+The workflow does not use a GitHub environment or a PyPI API token. Because there is no environment approval step, limit GitHub write access to trusted maintainers and restrict who can create or modify release tags.
+
+1. Update the version in `setup.py` and the release notes in `README.md`. Merge the release changes into `main` after CI passes.
+2. On the merged release commit, create and push a matching numeric tag (no `v` prefix). For 1.1.1:
+
+   ```bash
+   git tag 1.1.1
+   git push origin refs/tags/1.1.1
+   ```
+
+3. The **Publish to PyPI** workflow checks the tag against the built version and runs the regression suite against the wheel before publishing the wheel and source distribution. After publishing, follow the link in the workflow summary or the README's **PyPI provenance** badge to the **Security** tab on PyPI. Check that both files have a PyPI Publish attestation. Prior releases without attestations will not gain them retroactively.
 
 ## Community Guidelines
 
